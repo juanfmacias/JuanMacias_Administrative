@@ -1,5 +1,5 @@
 ---
-title: Abstract revew
+title: Abstract review
 date_received: 2026-05-29
 date_due: 2026-06-09
 reviewer: Juan
