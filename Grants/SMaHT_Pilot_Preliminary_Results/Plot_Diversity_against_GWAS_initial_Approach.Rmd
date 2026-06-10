@@ -1,0 +1,619 @@
+---
+title: "Compare pangenome structure to density of GWAS loci - initial aproach"
+author: "CIG @ MGI"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/SMaHT/Pangenome_variation_vs_GWAS_Loci_Neurodegenerative_Disorders/")
+
+# Set seed
+set.seed(0)
+
+# Load packages
+library(ggplot2)
+require(cowplot)
+library(viridis)
+library(tidyr)
+
+theme_set(theme_cowplot())
+
+# Set theme object
+CS.THEME<-theme(
+  panel.background = element_rect(fill="white"),
+  panel.grid.major=element_line(color="gray90", linetype="solid"), #adds major grid lines
+  panel.grid.minor=element_line(color="gray95", linetype="solid", size=0.65), #adds minor grid lines
+  panel.border=element_rect(fill=NA, color="black", size=1.5, linetype="solid"), #draws a black border around plot
+  axis.line=element_blank(),
+  text=element_text(colour = "black", family= "Arial")
+)
+
+# Import custom common omics functions
+source("/Users/juanmacias/Documents/GitHub/JuanMacias_General_Code/R_Scripts/General/OmicsPlottingFunctions.R")
+```
+
+```{r import pangenome data, include=FALSE}
+# Set input file path for diversity metrics
+## 24kb bins
+InputFile.24Kb.Diversity<-"/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/HPRC/Pangenome_Diversity_Association/CompareToVariantCallRate/Bins_24kb_Diversity_Metrics.bed"
+## 200kb bins
+InputFile.200Kb.Diversity<-"/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/HPRC/Pangenome_Diversity_Association/CompareToVariantCallRate/Bins_200kb_Diversity_Metrics.bed"
+
+# Read diversity metrics files
+## 24Kb bins
+DiversityMetrics.24Kb<-read.table(InputFile.24Kb.Diversity, header=FALSE, sep="\t", stringsAsFactors=FALSE)
+colnames(DiversityMetrics.24Kb)<-c("Chr", "Start", "Stop", "ShannonIndex.mean", "ShannonIndex.max", "ShannonIndex.min", "ShannonIndex.count", "NonRefAlleles.mean","NonRefAlleles.sum","NonRefAlleles.max","NonRefAlleles.min","TotalHaplotypes.mean","TotalHaplotypes.max","TotalHaplotypes.min")
+## 200kb bins
+DivMetrics.200Kb<-read.table(InputFile.200Kb.Diversity, header=FALSE, sep="\t", stringsAsFactors=FALSE)
+colnames(DivMetrics.200Kb)<-c("Chr", "Start", "Stop", "ShannonIndex.mean", "ShannonIndex.max", "ShannonIndex.min", "ShannonIndex.count", "NonRefAlleles.mean","NonRefAlleles.sum","NonRefAlleles.max","NonRefAlleles.min","TotalHaplotypes.mean","TotalHaplotypes.max","TotalHaplotypes.min")
+
+# Convert "." to NA
+DiversityMetrics.24Kb[DiversityMetrics.24Kb=="."]<-NA
+DivMetrics.200Kb[DivMetrics.200Kb=="."]<-NA
+
+# Convert to numeric
+DivMetrics.200Kb$NonRefAlleles.sum<-as.numeric(DivMetrics.200Kb$NonRefAlleles.sum)
+DiversityMetrics.24Kb$NonRefAlleles.sum<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum)
+
+DivMetrics.200Kb$NonRefAlleles.mean<-as.numeric(DivMetrics.200Kb$NonRefAlleles.mean)
+DiversityMetrics.24Kb$NonRefAlleles.mean<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.mean)
+
+DivMetrics.200Kb$NonRefAlleles.max<-as.numeric(DivMetrics.200Kb$NonRefAlleles.max)
+DiversityMetrics.24Kb$NonRefAlleles.max<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.max)
+
+DivMetrics.200Kb$NonRefAlleles.min<-as.numeric(DivMetrics.200Kb$NonRefAlleles.min)
+DiversityMetrics.24Kb$NonRefAlleles.min<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.min)
+
+# Leave in only NonRefAlleles metrics
+DiversityMetrics.24Kb<-DiversityMetrics.24Kb[,c(1:3, 8:11)]
+DivMetrics.200Kb<-DivMetrics.200Kb[,c(1:3, 8:11)]
+```
+
+```{r calculate weighted diversity metric}
+# For the 9th column generate a 240Kb sliding window that averages the value of the 9th column at the ith position with with next 10 positions
+DiversityMetrics.24Kb$NonRefAlleles.sum.mean<-rollmean(as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum), 10, fill = NA)
+DivMetrics.200Kb$NonRefAlleles.sum.mean<-rollmean(as.numeric(DivMetrics.200Kb$NonRefAlleles.sum), 10, fill = NA)
+
+# Calculate the deviation of the 9th column from the mean and weight it by the mean
+DiversityMetrics.24Kb$NonRefAlleles.sum.Deviation<-100*(as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum)-DiversityMetrics.24Kb$NonRefAlleles.sum.mean)/DiversityMetrics.24Kb$NonRefAlleles.sum.mean
+DivMetrics.200Kb$NonRefAlleles.sum.Deviation<-100*(as.numeric(DivMetrics.200Kb$NonRefAlleles.sum)-DivMetrics.200Kb$NonRefAlleles.sum.mean)/DivMetrics.200Kb$NonRefAlleles.sum.mean
+
+#FILLMAX<-ceiling(max(DiversityMetrics.24Kb$NonRefAlleles.sum.Deviation, na.rm = TRUE))
+#FILLMIN<-floor(min(DiversityMetrics.24Kb$NonRefAlleles.sum.Deviation, na.rm = TRUE))
+
+```
+
+```{r import ND GWAS loci data, include=TRUE}
+GWAS_ND_Data<-read.delim("gwas-association-downloaded_2024-11-08-EFO_0005772-withChildTraits.tsv", header=TRUE, sep="\t", stringsAsFactors=FALSE)
+
+# Filter out P-values that are not significant (P.VALUE>5*10^-8)
+nrow(GWAS_ND_Data[GWAS_ND_Data$P.VALUE<=5*10^-8,])/nrow(GWAS_ND_Data)
+GWAS_ND_Data<-GWAS_ND_Data[GWAS_ND_Data$P.VALUE<=5*10^-8,]
+```
+
+```{r basic stats - ND, include=TRUE}
+# How many unique chromosomes are in the GWAS data?
+table(GWAS_ND_Data$CHR_ID)
+sum(table(GWAS_ND_Data$CHR_ID))
+
+# There are some with no chromosome information.
+head(GWAS_ND_Data[GWAS_ND_Data$CHR_ID=="",])
+
+# Filter out those with no chromosome information. I may need to come back and reconsider this.
+GWAS_ND_Data<-GWAS_ND_Data[GWAS_ND_Data$CHR_ID!="",]
+
+# Check unique chromosomes again
+table(GWAS_ND_Data$CHR_ID)
+sum(table(GWAS_ND_Data$CHR_ID))
+
+# Check for CHR_POS with non-standard values
+GWAS_ND_Data[is.na(as.numeric(GWAS_ND_Data$CHR_POS)),]
+
+# Filter out those with non-standard values (only keep ones where CHR_ID is c(1:22, X, Y))
+GWAS_ND_Data<-GWAS_ND_Data[GWAS_ND_Data$CHR_ID %in% c(1:22, "X", "Y"),]
+
+# Check unique chromosomes again
+table(GWAS_ND_Data$CHR_ID)
+sum(table(GWAS_ND_Data$CHR_ID))
+
+# Convert number chromosomes to string format: "1" to "chr1"
+GWAS_ND_Data$CHR_ID<-paste("chr", GWAS_ND_Data$CHR_ID, sep="")
+
+# Check unique chromosomes again
+table(GWAS_ND_Data$CHR_ID)
+sum(table(GWAS_ND_Data$CHR_ID))
+
+# Make CHR_ID a factor
+GWAS_ND_Data$CHR_ID<-factor(GWAS_ND_Data$CHR_ID, levels=paste("chr", c(1:22, "X", "Y"), sep=""))
+
+# Convert CHR_POS to numeric
+GWAS_ND_Data$CHR_POS<-as.numeric(GWAS_ND_Data$CHR_POS)
+```
+
+```{r plot manhattan plot of GWAS loci, include=TRUE, fig.width=10, fig.height=10}
+ggplot(GWAS_ND_Data, aes(x=CHR_POS/1000000, y=PVALUE_MLOG, color=PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~CHR_ID, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("-log10(P-value)")+
+  CS.THEME+
+  theme(legend.position="none")
+```
+
+```{r Integrate pangenome data with GWAS loci data, include=TRUE}
+# For each interval in the DiversityMetrics.24Kb and DivMetrics.200Kb data:
+## count how many GWAS loci are within that interval.
+## calculate the mean PVALUE_MLOG for those GWAS loci.
+## calculate the sd PVALUE_MLOG for those GWAS loci.
+
+# For 24Kb bins
+DiversityMetrics.24Kb$GWAS_Loci_Count<-NA
+DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG<-NA
+DiversityMetrics.24Kb$GWAS_Loci_SD_PVALUE_MLOG<-NA
+
+## For each interval in DiversityMetrics.24Kb count how many GWAS loci are within that interval.
+DiversityMetrics.24Kb$GWAS_Loci_Count<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  sum(GWAS_ND_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i])
+})
+
+## For each interval in DiversityMetrics.24Kb calculate the mean PVALUE_MLOG for those GWAS loci.
+DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  mean(GWAS_ND_Data$PVALUE_MLOG[GWAS_ND_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i]])
+})
+
+## For each interval in DiversityMetrics.24Kb calculate the sd PVALUE_MLOG for those GWAS loci.
+DiversityMetrics.24Kb$GWAS_Loci_SD_PVALUE_MLOG<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  sd(GWAS_ND_Data$PVALUE_MLOG[GWAS_ND_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i]])
+})
+
+# For 200Kb bins
+DivMetrics.200Kb$GWAS_Loci_Count<-NA
+DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG<-NA
+DivMetrics.200Kb$GWAS_Loci_SD_PVALUE_MLOG<-NA
+
+## For each interval in DivMetrics.200Kb count how many GWAS loci are within that interval.
+DivMetrics.200Kb$GWAS_Loci_Count<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  sum(GWAS_ND_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DivMetrics.200Kb$Stop[i])
+})
+
+## For each interval in DivMetrics.200Kb calculate the mean PVALUE_MLOG for those GWAS loci.
+DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  mean(GWAS_ND_Data$PVALUE_MLOG[GWAS_ND_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DivMetrics.200Kb$Stop[i]])
+})
+
+## For each interval in DivMetrics.200Kb calculate the sd PVALUE_MLOG for those GWAS loci.
+DivMetrics.200Kb$GWAS_Loci_SD_PVALUE_MLOG<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  sd(GWAS_ND_Data$PVALUE_MLOG[GWAS_ND_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_ND_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_ND_Data$CHR_POS<=DivMetrics.200Kb$Stop[i]])
+})
+```
+
+```{r deal with intervals with zero non-reference alleles and with no GWAS loci, include=TRUE}
+# There are intervals with zero non-reference alleles. Which for those fields are NA. Let's set those to zero.
+## For 24Kb bins
+sum(is.na(DiversityMetrics.24Kb$NonRefAlleles.sum))/nrow(DiversityMetrics.24Kb)
+DiversityMetrics.24Kb$NonRefAlleles.mean[is.na(DiversityMetrics.24Kb$NonRefAlleles.sum)]<-0
+DiversityMetrics.24Kb$NonRefAlleles.sum[is.na(DiversityMetrics.24Kb$NonRefAlleles.sum)]<-0
+DiversityMetrics.24Kb$NonRefAlleles.max[is.na(DiversityMetrics.24Kb$NonRefAlleles.sum)]<-0
+DiversityMetrics.24Kb$NonRefAlleles.min[is.na(DiversityMetrics.24Kb$NonRefAlleles.sum)]<-0
+sum(is.na(DiversityMetrics.24Kb$NonRefAlleles.sum))/nrow(DiversityMetrics.24Kb)
+
+## For 200Kb bins
+sum(is.na(DivMetrics.200Kb$NonRefAlleles.sum))/nrow(DivMetrics.200Kb)
+DivMetrics.200Kb$NonRefAlleles.mean[is.na(DivMetrics.200Kb$NonRefAlleles.sum)]<-0
+DivMetrics.200Kb$NonRefAlleles.sum[is.na(DivMetrics.200Kb$NonRefAlleles.sum)]<-0
+DivMetrics.200Kb$NonRefAlleles.max[is.na(DivMetrics.200Kb$NonRefAlleles.sum)]<-0
+DivMetrics.200Kb$NonRefAlleles.min[is.na(DivMetrics.200Kb$NonRefAlleles.sum)]<-0
+sum(is.na(DivMetrics.200Kb$NonRefAlleles.sum))/nrow(DivMetrics.200Kb)
+```
+
+```{r plot GWAS loci count and Pvalue per interval (24kb), include=TRUE, fig.width=10, fig.height=10}
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count>0), aes(x=Start/1000000, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~Chr, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="none")+
+  ggtitle("24Kb bins")
+```
+
+```{r plot GWAS loci count and Pvalue per interval (240kb), include=TRUE, fig.width=10, fig.height=10}
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count>0), aes(x=Start/1000000, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~Chr, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="none")+
+  ggtitle("200Kb bins")
+```
+
+```{r Do any of the terms correlate with each other? 24kb, include=TRUE}
+cor(as.matrix(DiversityMetrics.24Kb[,4:12]), use = "pairwise.complete.obs", method = "spearman")
+```
+
+```{r Do any of the terms correlate with each other? 200kb, include=TRUE}
+cor(as.matrix(DivMetrics.200Kb[,4:12]), use = "pairwise.complete.obs", method = "spearman")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum - 24kb, include=TRUE, fig.width=5, fig.height=5}
+# Sort dataframe by GWAS_Loci_Mean_PVALUE_MLOG
+DiversityMetrics.24Kb<-DiversityMetrics.24Kb[order(DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG),]
+
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum - 200kb, include=TRUE, fig.width=5, fig.height=5}
+# Sort dataframe by GWAS_Loci_Mean_PVALUE_MLOG
+DivMetrics.200Kb<-DivMetrics.200Kb[order(DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG),]
+
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 24kb, include=TRUE, fig.width=5, fig.height=5}
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum/24000, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Total Non-reference alleles \n/ Interval length")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")+
+  scale_x_continuous(trans = "log10")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 200kb, include=TRUE, fig.width=5, fig.height=5}
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum/200000, y=GWAS_Loci_Count, color=GWAS_Loci_Mean_PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Total Non-reference alleles \n/ Interval length")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")+
+  scale_x_continuous(trans = "log10")
+```
+
+```{r import Full GWAS loci data, include=TRUE}
+GWAS_Full_Data<-read.delim("gwas_catalog_v1.0.2-associations_e113_r2024-11-03.tsv", header=TRUE, sep="\t", stringsAsFactors=FALSE)
+dim(GWAS_Full_Data)
+
+# Filter out P-values that are not significant (P.VALUE>5*10^-8)
+nrow(GWAS_Full_Data[GWAS_Full_Data$P.VALUE<=5*10^-8,])/nrow(GWAS_Full_Data)
+GWAS_Full_Data<-GWAS_Full_Data[GWAS_Full_Data$P.VALUE<=5*10^-8,]
+
+# Add the ND entries to the full GWAS data, if they are not already there (STUDY.ACCESSION)
+GWAS_Full_Data<-rbind(GWAS_Full_Data, GWAS_ND_Data[!(GWAS_ND_Data$STUDY.ACCESSION %in% GWAS_Full_Data$STUDY.ACCESSION),])
+```
+
+```{r basic stats - full, include=TRUE}
+# How many unique chromosomes are in the GWAS data?
+table(GWAS_Full_Data$CHR_ID)
+sum(table(GWAS_Full_Data$CHR_ID))
+
+# There are some with no chromosome information.
+head(GWAS_Full_Data[GWAS_Full_Data$CHR_ID=="",])
+
+# Filter out those with no chromosome information. I may need to come back and reconsider this.
+GWAS_Full_Data<-GWAS_Full_Data[GWAS_Full_Data$CHR_ID!="",]
+
+# Check unique chromosomes again
+table(GWAS_Full_Data$CHR_ID)
+sum(table(GWAS_Full_Data$CHR_ID))
+
+# Check for CHR_POS with non-standard values
+GWAS_Full_Data[is.na(as.numeric(GWAS_Full_Data$CHR_POS)),]
+
+# Filter out those with non-standard values (only keep ones where CHR_ID is c(1:22, X, Y))
+GWAS_Full_Data<-GWAS_Full_Data[GWAS_Full_Data$CHR_ID %in% c(1:22, "X", "Y"),]
+
+# Check unique chromosomes again
+table(GWAS_Full_Data$CHR_ID)
+sum(table(GWAS_Full_Data$CHR_ID))
+
+# Convert number chromosomes to string format: "1" to "chr1"
+GWAS_Full_Data$CHR_ID<-paste("chr", GWAS_Full_Data$CHR_ID, sep="")
+
+# Check unique chromosomes again
+table(GWAS_Full_Data$CHR_ID)
+sum(table(GWAS_Full_Data$CHR_ID))
+
+# Make CHR_ID a factor
+GWAS_Full_Data$CHR_ID<-factor(GWAS_Full_Data$CHR_ID, levels=paste("chr", c(1:22, "X", "Y"), sep=""))
+
+# Convert CHR_POS to numeric
+GWAS_Full_Data$CHR_POS<-as.numeric(GWAS_Full_Data$CHR_POS)
+```
+
+```{r plot manhattan plot of GWAS loci - full, include=TRUE, fig.width=10, fig.height=10}
+ggplot(GWAS_Full_Data, aes(x=CHR_POS/1000000, y=PVALUE_MLOG, color=PVALUE_MLOG))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~CHR_ID, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("-log10(P-value)")+
+  CS.THEME+
+  theme(legend.position="none")
+```
+
+```{r Integrate pangenome data with GWAS loci data - full, include=TRUE}
+# For each interval in the DiversityMetrics.24Kb and DivMetrics.200Kb data:
+## count how many GWAS loci are within that interval.
+## calculate the mean PVALUE_MLOG for those GWAS loci.
+## calculate the sd PVALUE_MLOG for those GWAS loci.
+
+# For 24Kb bins
+DiversityMetrics.24Kb$GWAS_Loci_Count_full<-NA
+DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG_full<-NA
+DiversityMetrics.24Kb$GWAS_Loci_SD_PVALUE_MLOG_full<-NA
+
+## For each interval in DiversityMetrics.24Kb count how many GWAS loci are within that interval.
+DiversityMetrics.24Kb$GWAS_Loci_Count_full<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  sum(GWAS_Full_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i])
+})
+
+## For each interval in DiversityMetrics.24Kb calculate the mean PVALUE_MLOG for those GWAS loci.
+DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG_full<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  mean(GWAS_Full_Data$PVALUE_MLOG[GWAS_Full_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i]])
+})
+
+## For each interval in DiversityMetrics.24Kb calculate the sd PVALUE_MLOG for those GWAS loci.
+DiversityMetrics.24Kb$GWAS_Loci_SD_PVALUE_MLOG_full<-sapply(1:nrow(DiversityMetrics.24Kb), function(i){
+  sd(GWAS_Full_Data$PVALUE_MLOG[GWAS_Full_Data$CHR_ID==DiversityMetrics.24Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DiversityMetrics.24Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DiversityMetrics.24Kb$Stop[i]])
+})
+
+# For 200Kb bins
+DivMetrics.200Kb$GWAS_Loci_Count_full<-NA
+DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG_full<-NA
+DivMetrics.200Kb$GWAS_Loci_SD_PVALUE_MLOG_full<-NA
+
+## For each interval in DivMetrics.200Kb count how many GWAS loci are within that interval.
+DivMetrics.200Kb$GWAS_Loci_Count_full<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  sum(GWAS_Full_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DivMetrics.200Kb$Stop[i])
+})
+
+## For each interval in DivMetrics.200Kb calculate the mean PVALUE_MLOG for those GWAS loci.
+DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG_full<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  mean(GWAS_Full_Data$PVALUE_MLOG[GWAS_Full_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DivMetrics.200Kb$Stop[i]])
+})
+
+## For each interval in DivMetrics.200Kb calculate the sd PVALUE_MLOG for those GWAS loci.
+DivMetrics.200Kb$GWAS_Loci_SD_PVALUE_MLOG_full<-sapply(1:nrow(DivMetrics.200Kb), function(i){
+  sd(GWAS_Full_Data$PVALUE_MLOG[GWAS_Full_Data$CHR_ID==DivMetrics.200Kb$Chr[i] & GWAS_Full_Data$CHR_POS>=DivMetrics.200Kb$Start[i] & GWAS_Full_Data$CHR_POS<=DivMetrics.200Kb$Stop[i]])
+})
+```
+
+```{r plot GWAS loci count and Pvalue per interval (24kb) - full, include=TRUE, fig.width=10, fig.height=10}
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count_full>0), aes(x=Start/1000000, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~Chr, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="none")+
+  ggtitle("24Kb bins")
+```
+
+```{r plot GWAS loci count and Pvalue per interval (200kb) - full, include=TRUE, fig.width=10, fig.height=10}
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count_full>0), aes(x=Start/1000000, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  facet_wrap(~Chr, scales="free_x")+
+  xlab("Position (Mb)")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="none")+
+  ggtitle("200Kb bins")
+```
+
+```{r Do any of the terms correlate with each other? 24kb - full, include=TRUE}
+cor(as.matrix(DiversityMetrics.24Kb[,4:15]), use = "pairwise.complete.obs", method = "spearman")
+```
+
+```{r Do any of the terms correlate with each other? 200kb - full, include=TRUE}
+cor(as.matrix(DivMetrics.200Kb[,4:15]), use = "pairwise.complete.obs", method = "spearman")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum - 24kb - full, include=TRUE, fig.width=5, fig.height=5}
+# Sort dataframe by GWAS_Loci_Mean_PVALUE_MLOG
+DiversityMetrics.24Kb<-DiversityMetrics.24Kb[order(DiversityMetrics.24Kb$GWAS_Loci_Mean_PVALUE_MLOG_full),]
+
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count_full>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Weighted Non-reference allele count rate - full")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum - 200kb - full, include=TRUE, fig.width=5, fig.height=5}
+# Sort dataframe by GWAS_Loci_Mean_PVALUE_MLOG
+DivMetrics.200Kb<-DivMetrics.200Kb[order(DivMetrics.200Kb$GWAS_Loci_Mean_PVALUE_MLOG_full),]
+
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count_full>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Weighted Non-reference allele count rate - full")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 24kb - full, include=TRUE, fig.width=5, fig.height=5}
+ggplot(subset(DiversityMetrics.24Kb, GWAS_Loci_Count_full>0), aes(x=NonRefAlleles.sum/24000, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Total Non-reference alleles \n/ Interval length")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")+
+  scale_x_continuous(trans = "log10")
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 200kb - full, include=TRUE, fig.width=5, fig.height=5}
+ggplot(subset(DivMetrics.200Kb, GWAS_Loci_Count_full>0), aes(x=NonRefAlleles.sum/200000, y=GWAS_Loci_Count_full, color=GWAS_Loci_Mean_PVALUE_MLOG_full))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=FALSE, begin=1, end=0)+
+  xlab("Total Non-reference alleles \n/ Interval length")+
+  ylab("GWAS loci count - full")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")+
+  scale_x_continuous(trans = "log10")
+```
+
+```{r re-organize data}
+ND_24Kb<-DiversityMetrics.24Kb[,c(1:3, 9, 10, 11)]
+colnames(ND_24Kb)<-c("Chr", "Start", "Stop", "NonRefAlleles.sum.Deviation", "GWAS_Loci_Count", "GWAS_Loci_Mean_PVALUE_MLOG")
+ND_24Kb$Dataset<-"Neurodegenerative Diseases"
+ND_24Kb$GWAS_Loci_Count_percent<-(ND_24Kb$GWAS_Loci_Count/sum(ND_24Kb$GWAS_Loci_Count, na.rm = TRUE))*100
+
+Full_24kb<-DiversityMetrics.24Kb[,c(1:3, 9, 13, 14)]
+colnames(Full_24kb)<-c("Chr", "Start", "Stop", "NonRefAlleles.sum.Deviation", "GWAS_Loci_Count", "GWAS_Loci_Mean_PVALUE_MLOG")
+Full_24kb$Dataset<-"All"
+Full_24kb$GWAS_Loci_Count_percent<-(Full_24kb$GWAS_Loci_Count/sum(Full_24kb$GWAS_Loci_Count, na.rm = TRUE))*100
+
+Combined_24kb<-rbind(ND_24Kb, Full_24kb)
+rm(ND_24Kb, Full_24kb)
+
+ND_200Kb<-DivMetrics.200Kb[,c(1:3, 9, 10, 11)]
+colnames(ND_200Kb)<-c("Chr", "Start", "Stop", "NonRefAlleles.sum.Deviation", "GWAS_Loci_Count", "GWAS_Loci_Mean_PVALUE_MLOG")
+ND_200Kb$Dataset<-"Neurodegenerative Diseases"
+ND_200Kb$GWAS_Loci_Count_percent<-(ND_200Kb$GWAS_Loci_Count/sum(ND_200Kb$GWAS_Loci_Count, na.rm = TRUE))*100
+
+Full_200kb<-DivMetrics.200Kb[,c(1:3, 9, 13, 14)]
+colnames(Full_200kb)<-c("Chr", "Start", "Stop", "NonRefAlleles.sum.Deviation", "GWAS_Loci_Count", "GWAS_Loci_Mean_PVALUE_MLOG")
+Full_200kb$Dataset<-"All"
+Full_200kb$GWAS_Loci_Count_percent<-(Full_200kb$GWAS_Loci_Count/sum(Full_200kb$GWAS_Loci_Count, na.rm = TRUE))*100
+
+Combined_200kb<-rbind(ND_200Kb, Full_200kb)
+rm(ND_200Kb, Full_200kb)
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 24kb - combined, include=TRUE, fig.width=6, fig.height=5}
+# Sort dataframe by Dataset
+Combined_24kb<-Combined_24kb[order(Combined_24kb$Dataset),]
+
+# Scatter plot
+ggplot(subset(Combined_24kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")
+
+# Scatter plot with facet grid
+ggplot(subset(Combined_24kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")+
+  facet_grid(~Dataset)
+```
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 24kb - combined - split by chrom, include=TRUE, fig.width=12, fig.height=12}
+# Scatter plot split by chromosome
+ggplot(subset(Combined_24kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("24Kb bins")+
+  facet_wrap(~Chr)
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 200kb - combined, include=TRUE, fig.width=6, fig.height=5}
+# Sort dataframe by Dataset
+Combined_200kb<-Combined_200kb[order(Combined_200kb$Dataset),]
+
+ggplot(subset(Combined_200kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")
+
+ggplot(subset(Combined_200kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")+
+  facet_grid(~Dataset)
+```
+
+```{r plot GWAS loci count against NonRefAlleles.sum / Interval length - 200kb - combined - split by chrom, include=TRUE, fig.width=12, fig.height=12}
+# Scatter plot split by chromosome
+ggplot(subset(Combined_200kb, GWAS_Loci_Count>0), aes(x=NonRefAlleles.sum.Deviation, y=GWAS_Loci_Count, color=Dataset))+
+  geom_point(size=1, stroke=0)+
+  scale_color_viridis(discrete=TRUE, begin=0.8, end=0.2, option = "cividis")+
+  xlab("Weighted Non-reference allele count rate")+
+  ylab("GWAS loci count")+
+  CS.THEME+
+  theme(legend.position="bottom")+
+  ggtitle("200Kb bins")+
+  facet_wrap(~Chr)
+```
+
+```{r odds ratio}
+Background_High_Poly_Count<-sum(subset(Combined_24kb, Dataset=="All" & NonRefAlleles.sum.Deviation >= 25  )$GWAS_Loci_Count)
+Background_Low_Poly_Count<-sum(subset(Combined_24kb, Dataset=="All" & NonRefAlleles.sum.Deviation < 25  )$GWAS_Loci_Count)
+
+Neurodegenerative_High_Poly_Count<-sum(subset(Combined_24kb, Dataset=="Neurodegenerative Diseases" & NonRefAlleles.sum.Deviation >= 25  )$GWAS_Loci_Count)
+Neurodegenerative_Low_Poly_Count<-sum(subset(Combined_24kb, Dataset=="Neurodegenerative Diseases" & NonRefAlleles.sum.Deviation < 25  )$GWAS_Loci_Count)
+
+(Neurodegenerative_High_Poly_Count/Neurodegenerative_Low_Poly_Count)/(Background_High_Poly_Count/Background_Low_Poly_Count)
+```
+
+```{r regions with variation above threshold}
+# Re-write the following
+
+# 24kb
+Threshold_24kb<-50
+Above_Threshold_24kb<-subset(Combined_24kb, GWAS_Loci_Count>0 & NonRefAlleles.sum.Deviation>Threshold_24kb)
+Above_Threshold_24kb
+
+# 200kb
+Threshold_200kb<-25
+Above_Threshold_200kb<-subset(Combined_200kb, GWAS_Loci_Count>0 & NonRefAlleles.sum.Deviation>Threshold_200kb)
+Above_Threshold_200kb
+
+# Save data
+write.table(Above_Threshold_24kb, "Above_Threshold_24kb_Initial.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+write.table(Above_Threshold_200kb, "Above_Threshold_200kb_Initial.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+```
+

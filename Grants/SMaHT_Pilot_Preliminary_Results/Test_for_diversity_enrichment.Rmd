@@ -1,0 +1,603 @@
+---
+title: "Compare pangenome structure to density of GWAS loci - second aproach"
+author: "CIG @ MGI"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/SMaHT/Pangenome_variation_vs_GWAS_Loci_Neurodegenerative_Disorders/")
+
+# Set seed
+set.seed(0)
+
+# Load packages
+library(ggplot2)
+require(cowplot)
+library(viridis)
+library(tidyr)
+
+theme_set(theme_cowplot())
+
+# Set theme object
+CS.THEME<-theme(
+  panel.background = element_rect(fill="white"),
+  panel.grid.major=element_line(color="gray90", linetype="solid"), #adds major grid lines
+  panel.grid.minor=element_line(color="gray95", linetype="solid", size=0.65), #adds minor grid lines
+  panel.border=element_rect(fill=NA, color="black", size=1.5, linetype="solid"), #draws a black border around plot
+  axis.line=element_blank(),
+  text=element_text(colour = "black", family= "Arial")
+)
+
+# Import custom common omics functions
+source("/Users/juanmacias/Documents/GitHub/JuanMacias_General_Code/R_Scripts/General/OmicsPlottingFunctions.R")
+```
+
+```{r import pangenome data, include=FALSE}
+# Set input file path for diversity metrics
+## 24kb bins
+InputFile.24Kb.Diversity<-"/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/HPRC/Pangenome_Diversity_Association/CompareToVariantCallRate/Bins_24kb_Diversity_Metrics.bed"
+## 200kb bins
+InputFile.200Kb.Diversity<-"/Users/juanmacias/Library/CloudStorage/Box-Box/LawsonLab/JuanMacias/Postdoc/HPRC/Pangenome_Diversity_Association/CompareToVariantCallRate/Bins_200kb_Diversity_Metrics.bed"
+
+# Read diversity metrics files
+## 24Kb bins
+DiversityMetrics.24Kb<-read.table(InputFile.24Kb.Diversity, header=FALSE, sep="\t", stringsAsFactors=FALSE)
+colnames(DiversityMetrics.24Kb)<-c("Chr", "Start", "Stop", "ShannonIndex.mean", "ShannonIndex.max", "ShannonIndex.min", "ShannonIndex.count", "NonRefAlleles.mean","NonRefAlleles.sum","NonRefAlleles.max","NonRefAlleles.min","TotalHaplotypes.mean","TotalHaplotypes.max","TotalHaplotypes.min")
+## 200kb bins
+DivMetrics.200Kb<-read.table(InputFile.200Kb.Diversity, header=FALSE, sep="\t", stringsAsFactors=FALSE)
+colnames(DivMetrics.200Kb)<-c("Chr", "Start", "Stop", "ShannonIndex.mean", "ShannonIndex.max", "ShannonIndex.min", "ShannonIndex.count", "NonRefAlleles.mean","NonRefAlleles.sum","NonRefAlleles.max","NonRefAlleles.min","TotalHaplotypes.mean","TotalHaplotypes.max","TotalHaplotypes.min")
+
+# Convert "." to NA
+DiversityMetrics.24Kb[DiversityMetrics.24Kb=="."]<-NA
+DivMetrics.200Kb[DivMetrics.200Kb=="."]<-NA
+
+# Convert to numeric
+DivMetrics.200Kb$NonRefAlleles.sum<-as.numeric(DivMetrics.200Kb$NonRefAlleles.sum)
+DiversityMetrics.24Kb$NonRefAlleles.sum<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum)
+
+DivMetrics.200Kb$NonRefAlleles.mean<-as.numeric(DivMetrics.200Kb$NonRefAlleles.mean)
+DiversityMetrics.24Kb$NonRefAlleles.mean<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.mean)
+
+DivMetrics.200Kb$NonRefAlleles.max<-as.numeric(DivMetrics.200Kb$NonRefAlleles.max)
+DiversityMetrics.24Kb$NonRefAlleles.max<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.max)
+
+DivMetrics.200Kb$NonRefAlleles.min<-as.numeric(DivMetrics.200Kb$NonRefAlleles.min)
+DiversityMetrics.24Kb$NonRefAlleles.min<-as.numeric(DiversityMetrics.24Kb$NonRefAlleles.min)
+
+# Leave in only NonRefAlleles metrics
+DiversityMetrics.24Kb<-DiversityMetrics.24Kb[,c(1:3, 8:11)]
+DivMetrics.200Kb<-DivMetrics.200Kb[,c(1:3, 8:11)]
+```
+
+```{r calculate weighted diversity metric}
+# For the 9th column generate a 240Kb sliding window that averages the value of the 9th column at the ith position with with next 10 positions
+DiversityMetrics.24Kb$NonRefAlleles.sum.mean<-rollmean(as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum), 10, fill = NA)
+DivMetrics.200Kb$NonRefAlleles.sum.mean<-rollmean(as.numeric(DivMetrics.200Kb$NonRefAlleles.sum), 10, fill = NA)
+
+# Calculate the deviation of the 9th column from the mean and weight it by the mean
+DiversityMetrics.24Kb$NonRefAlleles.sum.Deviation<-100*(as.numeric(DiversityMetrics.24Kb$NonRefAlleles.sum)-DiversityMetrics.24Kb$NonRefAlleles.sum.mean)/DiversityMetrics.24Kb$NonRefAlleles.sum.mean
+DivMetrics.200Kb$NonRefAlleles.sum.Deviation<-100*(as.numeric(DivMetrics.200Kb$NonRefAlleles.sum)-DivMetrics.200Kb$NonRefAlleles.sum.mean)/DivMetrics.200Kb$NonRefAlleles.sum.mean
+```
+
+```{r plot distribution of diversity metric, include=TRUE}
+DiversirtyThreshold<-50
+
+# Plot distribution of diversity metric - 24Kb bins
+ggplot(DiversityMetrics.24Kb, aes(x=NonRefAlleles.sum.Deviation))+
+  geom_histogram(fill="blue", color="blue", bins=100)+
+  labs(title="Distribution of diversity metric - 24Kb bins", x="Weighted Non-reference allele count rate", y="Frequency")+
+  CS.THEME+
+  geom_vline(xintercept=DiversirtyThreshold, color="black", linetype="dashed")+
+  geom_vline(xintercept=-DiversirtyThreshold, color="black", linetype="dashed")+
+  # Add labels to denote the thresholds {Low, Moderate, High}
+  annotate("text", x=50, y=-400, label="High", color="black", size=2.5)+
+  annotate("text", x=-50, y=-400, label="Low", color="black", size=2.5)+
+  annotate("text", x=0, y=-400, label="Medium", color="black", size=2.5)
+
+# Plot distribution of diversity metric - 200Kb bins
+ggplot(DivMetrics.200Kb, aes(x=NonRefAlleles.sum.Deviation))+
+  geom_histogram(fill="blue", color="blue", bins=100)+
+  labs(title="Distribution of diversity metric - 200Kb bins", x="Weighted Non-reference allele count rate", y="Frequency")+
+  CS.THEME+
+  geom_vline(xintercept=DiversirtyThreshold, color="black", linetype="dashed")+
+  geom_vline(xintercept=-DiversirtyThreshold, color="black", linetype="dashed")+
+  # Add labels to denote the thresholds {Low, Moderate, High}
+  annotate("text", x=50, y=-50, label="High", color="black", size=2.5)+
+  annotate("text", x=-50, y=-50, label="Low", color="black", size=2.5)+
+  annotate("text", x=0, y=-50, label="Medium", color="black", size=2.5)
+
+# Plot cumulative distribution of diversity metric - 24Kb bins
+ggplot(DiversityMetrics.24Kb, aes(x=NonRefAlleles.sum.Deviation))+
+  stat_ecdf(geom="step", color="blue")+
+  labs(title="Cumulative distribution of diversity metric - 24Kb bins", x="Weighted Non-reference allele count rate", y="Cumulative probability")+
+  CS.THEME+
+  geom_vline(xintercept=DiversirtyThreshold, color="black", linetype="dashed")+
+  geom_vline(xintercept=-DiversirtyThreshold, color="black", linetype="dashed")+
+  # Add labels to denote the thresholds {Low, Moderate, High}
+  annotate("text", x=50, y=-0.025, label="High", color="black", size=2.5)+
+  annotate("text", x=-50, y=-0.025, label="Low", color="black", size=2.5)+
+  annotate("text", x=0, y=-0.025, label="Medium", color="black", size=2.5)
+
+# Plot cumulative distribution of diversity metric - 200Kb bins
+ggplot(DivMetrics.200Kb, aes(x=NonRefAlleles.sum.Deviation))+
+  stat_ecdf(geom="step", color="blue")+
+  labs(title="Cumulative distribution of diversity metric - 200Kb bins", x="Weighted Non-reference allele count rate", y="Cumulative probability")+
+  CS.THEME+
+  geom_vline(xintercept=DiversirtyThreshold, color="black", linetype="dashed")+
+  geom_vline(xintercept=-DiversirtyThreshold, color="black", linetype="dashed")+
+  # Add labels to denote the thresholds {Low, Moderate, High}
+  annotate("text", x=50, y=-0.025, label="High", color="black", size=2.5)+
+  annotate("text", x=-50, y=-0.025, label="Low", color="black", size=2.5)+
+  annotate("text", x=0, y=-0.025, label="Medium", color="black", size=2.5)
+```
+
+```{r import associations GWAS loci data, include=TRUE}
+# All associations file
+GWAS_Data<-read.delim("gwas_catalog_v1.0.2-associations_e113_r2024-11-03.tsv", header=TRUE, sep="\t", stringsAsFactors=FALSE)
+## How many associations are there?
+nrow(GWAS_Data)
+
+# Neurodegenerative disorders associations file
+GWAS_Data_ND<-read.delim("gwas-association-downloaded_2024-11-08-EFO_0005772-withChildTraits.tsv", header=TRUE, sep="\t", stringsAsFactors=FALSE)
+#GWAS_Data_ND<-read.delim("gwas-association-downloaded_2024-11-14-EFO_1001870_LateOnsetAlzheimers.tsv", header=TRUE, sep="\t", stringsAsFactors=FALSE)
+## How many associations are there?
+nrow(GWAS_Data_ND)
+
+# Combine all associations based on STUDY.ACCESSION
+GWAS_Data<-rbind(GWAS_Data, GWAS_Data_ND[!(GWAS_Data_ND$STUDY.ACCESSION %in% GWAS_Data$STUDY.ACCESSION),])
+## How many associations are there?
+nrow(GWAS_Data)
+```
+
+```{r define randomization function}
+# Define function to generate random sampling of loci
+## The function will take in a dataframe of GWAS data. {GWAS_OBJECT}
+## It will take in a number of sample, this corresponds to number of loci for the trait of interest {NUMBER_OF_SAMPLES}
+## It will take in a index number, which corresponds to the round of randomization we are on {INDEX}
+## It will return a dataframe of the same structure as the input dataframe. The MAPPED_TRAIT field will be renamed to Random_{INDEX}.
+## The sampling will be done in a trait-wise manner. So instead of randomly pulling rows, it randomly selects a trait adds it's loci, and based on the number of loci for that trait, it randomly selects another trait and adds it's loci. This is done until the number of loci from all sampled traits is equal to the number of loci for the trait of interest.
+
+randomize_gwas_data<-function(GWAS_OBJECT, NUMBER_OF_SAMPLES, INDEX){
+  # Initialize object to store random sampling
+  RandomSampling<-data.frame()
+  
+  # Determine the number of loci per unique trait
+  NumberLociPerTrait<-data.frame(table(GWAS_OBJECT$MAPPED_TRAIT))
+  
+  # Shuffle the column order of the NumberLociPerTrait object
+  NumberLociPerTrait<-NumberLociPerTrait[sample(1:nrow(NumberLociPerTrait)),]
+  
+  # Add a column to store the cumulative sum of loci. The first entry should be the number of loci for the first trait. The second entry should be the sum of the first and second trait, and so on.
+  NumberLociPerTrait$CumulativeSum<-cumsum(NumberLociPerTrait$Freq)
+  
+  # Identify the row number where the cumulative sum is greater than or equal to the number of samples
+  RowNumber<-which(NumberLociPerTrait$CumulativeSum>=NUMBER_OF_SAMPLES)[1]
+  
+  # Subset out the traits that will be sampled
+  TraitsToSample<-NumberLociPerTrait[1:RowNumber,]$Var1
+  
+  # Subset out the GWAS data for the traits that will be sampled
+  
+  GWAS_OBJECT<-GWAS_OBJECT[GWAS_OBJECT$MAPPED_TRAIT %in% TraitsToSample,]
+  
+  # Change mapped trait field to Random_{INDEX}
+  GWAS_OBJECT$MAPPED_TRAIT<-paste("Random_", INDEX, sep="")
+  
+  # Randomly sample the number of samples from the GWAS data
+  RandomSampling<-GWAS_OBJECT[sample(1:nrow(GWAS_OBJECT), NUMBER_OF_SAMPLES, replace=FALSE),]
+  
+  # Return the object
+  return(RandomSampling)
+}
+```
+
+```{r Generate random sampling sets}
+# Generate random sampling sets
+
+NumberToSample<-nrow(GWAS_Data_ND)
+
+GWAS_Random<-lapply(1:1000, function(i) randomize_gwas_data(GWAS_Data, NumberToSample, i)) %>% bind_rows()
+
+# ## Randomize order of rows - OLD WAY
+# GWAS_Data<-GWAS_Data[sample(1:nrow(GWAS_Data), nrow(GWAS_Data), replace=FALSE),]
+# ## Generate random sampling sets
+# NumberOfPermutations<-1000
+# GWAS_Random<-NULL
+# for(i in 1:NumberOfPermutations){
+#   Shuffle<-GWAS_Data[sample(1:nrow(GWAS_Data), nrow(GWAS_Data_ND), replace=FALSE),]
+#   ### Name each MAPPED_TRAIT Random_{i}
+#   Shuffle$MAPPED_TRAIT<-paste("Random_", i, sep="")
+#   GWAS_Random<-rbind(GWAS_Random, Shuffle)
+# }
+```
+
+```{r combine and significance filter GWAS data, include=TRUE}
+# Add random sampling sets to GWAS data
+GWAS_Data<-rbind(GWAS_Data, GWAS_Random)
+rm(GWAS_Random)
+
+# Combine all associations based on STUDY.ACCESSION
+## Change trait to ND
+GWAS_Data_ND$MAPPED_TRAIT<-"Neurodegenerative disorders"
+GWAS_Data<-rbind(GWAS_Data, GWAS_Data_ND)
+## How many associations are there?
+nrow(GWAS_Data)
+
+# Filter out P-values that are not significant (P.VALUE>5*10^-8)
+nrow(GWAS_Data[GWAS_Data$P.VALUE<=5*10^-8,])/nrow(GWAS_Data)
+GWAS_Data<-GWAS_Data[GWAS_Data$P.VALUE<=5*10^-8,]
+## How many associations are there?
+nrow(GWAS_Data)
+```
+
+```{r basic stats - full, include=TRUE}
+# How many unique chromosomes are in the GWAS data?
+sum(table(GWAS_Data$CHR_ID))
+
+# Filter out those with no chromosome information. I may need to come back and reconsider this.
+GWAS_Data<-GWAS_Data[GWAS_Data$CHR_ID!="",]
+
+# Check unique chromosomes again
+sum(table(GWAS_Data$CHR_ID))
+
+# Filter out those with non-standard values (only keep ones where CHR_ID is c(1:22, X, Y))
+GWAS_Data<-GWAS_Data[GWAS_Data$CHR_ID %in% c(1:22, "X", "Y"),]
+
+# Check unique chromosomes again
+sum(table(GWAS_Data$CHR_ID))
+
+# Convert number chromosomes to string format: "1" to "chr1"
+GWAS_Data$CHR_ID<-paste("chr", GWAS_Data$CHR_ID, sep="")
+
+# Check unique chromosomes again
+sum(table(GWAS_Data$CHR_ID))
+
+# Make CHR_ID a factor
+GWAS_Data$CHR_ID<-factor(GWAS_Data$CHR_ID, levels=paste("chr", c(1:22, "X", "Y"), sep=""))
+
+# Convert CHR_POS to numeric
+GWAS_Data$CHR_POS<-as.numeric(GWAS_Data$CHR_POS)
+```
+
+```{r define functions, include=TRUE}
+# Define function to extract diversity metric for each locus
+pull_diversity_metric<-function(Chr, position, DiversityObject){
+  # Extract diversity metric for each locus
+  DiversityMetric<-DiversityObject[DiversityObject$Chr==Chr & DiversityObject$Start<=position & DiversityObject$Stop>=position,]
+  return(DiversityMetric)
+}
+
+# Define function to extract and combine diversity metrics for each locus in an object
+pull_diversity_metrics<-function(GWAS_Object, DiversityObject){
+  # Initialize object to store diversity metrics
+  DiversityMetrics<-data.frame()
+  
+  # Loop through each locus in the GWAS data
+  for(i in 1:nrow(GWAS_Object)){
+    # Extract diversity metric for each locus
+    DiversityMetric<-pull_diversity_metric(GWAS_Object$CHR_ID[i], GWAS_Object$CHR_POS[i], DiversityObject)
+    
+    # Add diversity metrics and locus information to object
+    DiversityMetric<-cbind(GWAS_Object[i,], DiversityMetric)
+    
+    # Combine diversity metrics for each locus
+    DiversityMetrics<-rbind(DiversityMetrics, DiversityMetric)
+  }
+  
+  return(DiversityMetrics)
+}
+
+# Define function to calculate calculate polymorphism count table per object
+generate_polymorphism_count_table<-function(GWASDiversityObject, lowerThreshold=-DiversirtyThreshold, upperThreshold=DiversirtyThreshold){
+  
+  Low<-length(subset(GWASDiversityObject, NonRefAlleles.sum.Deviation < lowerThreshold)$NonRefAlleles.sum.Deviation)
+  Moderate<-length(subset(GWASDiversityObject, NonRefAlleles.sum.Deviation >= lowerThreshold & NonRefAlleles.sum.Deviation <= upperThreshold)$NonRefAlleles.sum.Deviation)
+  High<-length(subset(GWASDiversityObject, NonRefAlleles.sum.Deviation > upperThreshold)$NonRefAlleles.sum.Deviation)
+  Total<-Low+Moderate+High
+  
+  PolymorphismCountTable<-data.frame(Low=Low, Moderate=Moderate, High=High, Total=Total)
+  return(PolymorphismCountTable)
+}
+```
+
+```{r extract number of loci per trait, include=TRUE}
+NumberLociPerTrait_real<-data.frame(table(subset(GWAS_Data, !(MAPPED_TRAIT %in% paste("Random_",1:1000, sep="")))$MAPPED_TRAIT))
+
+# plot histogram of number of loci per trait - all real observations
+ggplot(NumberLociPerTrait_real, aes(x=Freq))+
+  geom_histogram(fill="blue", color="black", bins=100)+
+  labs(title="Number of loci per trait", x="Number of loci", y="Frequency")+
+  CS.THEME+
+  scale_x_continuous(trans="log2")+
+  geom_vline(xintercept=5, color="red", linetype="dashed")+
+  geom_vline(xintercept=nrow(subset(GWAS_Data, MAPPED_TRAIT=="Neurodegenerative disorders")), color="black", linetype="dashed")
+
+NumberLociPerTrait_random<-data.frame(table(subset(GWAS_Data, MAPPED_TRAIT %in% paste("Random_",1:1000, sep=""))$MAPPED_TRAIT))
+
+# plot histogram of number of loci per trait - Random observations
+ggplot(NumberLociPerTrait_random, aes(x=Freq))+
+  geom_histogram(fill="grey", color="black", bins=100)+
+  labs(title="Number of loci per trait", x="Number of loci", y="Frequency")+
+  CS.THEME+
+  scale_x_continuous(trans="log2")+
+  geom_vline(xintercept=5, color="red", linetype="dashed")+
+  geom_vline(xintercept=nrow(subset(GWAS_Data, MAPPED_TRAIT=="Neurodegenerative disorders")), color="black", linetype="dashed")
+```
+
+```{r filter out traits with less than 5 loci, include=TRUE}
+# how many traits before filtering?
+length(unique(GWAS_Data$MAPPED_TRAIT))
+
+# Filter out traits with less than 5 loci
+NumberLociPerTrait<-data.frame(table(GWAS_Data$MAPPED_TRAIT))
+GWAS_Data<-GWAS_Data[GWAS_Data$MAPPED_TRAIT %in% NumberLociPerTrait[NumberLociPerTrait$Freq>=5,]$Var1,]
+
+# how many traits are left?
+length(unique(GWAS_Data$MAPPED_TRAIT))
+```
+
+```{r extract diversity metric for each locus, include=TRUE}
+# Extract diversity metrics for each locus in the GWAS data
+GWAS_Data_withMetrics<-lapply(unique(GWAS_Data$MAPPED_TRAIT),
+       function(TRAIT) pull_diversity_metrics(subset(GWAS_Data, MAPPED_TRAIT==TRAIT), DivMetrics.200Kb)
+         ) %>% bind_rows()
+```
+
+```{r generate polymorphism count table, include=TRUE}
+PolymorphismCountTable<-lapply(unique(GWAS_Data_withMetrics$MAPPED_TRAIT),
+       function(TRAIT) generate_polymorphism_count_table(subset(GWAS_Data_withMetrics, MAPPED_TRAIT==TRAIT))
+       ) %>% bind_rows()
+
+PolymorphismCountTable$Trait<-unique(GWAS_Data_withMetrics$MAPPED_TRAIT)
+
+# Calculate high and low ratio
+PolymorphismCountTable$HighRatio<-PolymorphismCountTable$High/PolymorphismCountTable$Moderate
+PolymorphismCountTable$LowRatio<-PolymorphismCountTable$Low/PolymorphismCountTable$Moderate
+```
+
+```{r check for infinite values, include=TRUE}
+# Check for infinite values - High ratio
+PolymorphismCountTable[is.infinite(PolymorphismCountTable$HighRatio),]
+# Filter out infinite values
+PolymorphismCountTable<-PolymorphismCountTable[!is.infinite(PolymorphismCountTable$HighRatio),]
+
+# Check for infinite values - Low ratio
+PolymorphismCountTable[is.infinite(PolymorphismCountTable$LowRatio),]
+# Filter out infinite values
+PolymorphismCountTable<-PolymorphismCountTable[!is.infinite(PolymorphismCountTable$LowRatio),]
+```
+
+```{r Subset out the Random traits}
+# Subset out the Random traits
+PolymorphismCountTable_Random<-PolymorphismCountTable[grepl("Random", PolymorphismCountTable$Trait),]
+PolymorphismCountTable<-PolymorphismCountTable[!grepl("Random", PolymorphismCountTable$Trait),]
+
+# Save R data
+save(PolymorphismCountTable, file="PolymorphismCountTable.RData")
+save(PolymorphismCountTable_Random, file="PolymorphismCountTable_Random.RData")
+```
+
+```{r plot polymorphism count table, include=TRUE, fig.width=4, fig.height=4}
+# Load R data
+load("PolymorphismCountTable.RData")
+load("PolymorphismCountTable_Random.RData")
+
+# Calculate upper 1% of High ratio
+HighRatioThreshold<-quantile(PolymorphismCountTable_Random$HighRatio, 0.99)
+
+# Calculate upper 1% of Low ratio
+LowRatioThreshold<-quantile(PolymorphismCountTable_Random$LowRatio, 0.99)
+
+# Plot random traits High ratio - histogram
+ggplot(PolymorphismCountTable_Random, aes(x=HighRatio))+
+  geom_histogram(fill="grey", color="grey")+
+  labs(title="High ratio", x=expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions")), y="Frequency")+
+  CS.THEME+
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=HighRatioThreshold, color="black", linetype="dashed")
+
+# Plot random traits Low ratio - histogram
+ggplot(PolymorphismCountTable_Random, aes(x=LowRatio))+
+  geom_histogram(fill="grey", color="grey")+
+  labs(title="Low ratio", x=expression(frac("# Loci in low polymorphic regions", "# Loci in medium polymorphic regions")), y="Frequency")+
+  CS.THEME+
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=LowRatioThreshold, color="black", linetype="dashed")
+
+# Plot distribution of High ratio - histogram
+ggplot(PolymorphismCountTable, aes(x=HighRatio))+
+  geom_histogram(fill="blue", color="blue", binwidth = 0.05)+
+  labs(title="High ratio", x=expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions")), y="Frequency")+
+  CS.THEME+
+  # make intervals 0.1
+  scale_x_continuous(breaks=seq(0, max(PolymorphismCountTable$HighRatio, na.rm = TRUE), by=0.25))+
+  # make x-axis text smaller and rotate
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=HighRatioThreshold, color="black", linetype="dashed")
+
+# Plot High ratio against total number of loci per trait
+ggplot(PolymorphismCountTable, aes(x=Total, y=HighRatio))+
+  geom_point(size=1, stroke=0)+
+  labs(title="High ratio vs Total loci per trait", x="Total loci per trait", y=expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions")))+
+  CS.THEME+
+  scale_x_continuous(trans="log2")+
+  geom_hline(yintercept=HighRatioThreshold, color="red", linetype="dashed")
+
+# Plot distribution of Low ratio - histogram
+ggplot(PolymorphismCountTable, aes(x=LowRatio))+
+  geom_histogram(fill="blue", color="blue", binwidth = 0.05)+
+  labs(title="Low ratio", x=expression(frac("# Loci in low polymorphic regions", "# Loci in medium polymorphic regions")), y="Frequency")+
+  CS.THEME+
+  # make intervals 0.1
+  scale_x_continuous(breaks=seq(0, max(PolymorphismCountTable$LowRatio, na.rm = TRUE), by=0.25))+
+  # make x-axis text smaller and rotate
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=LowRatioThreshold, color="black", linetype="dashed")
+
+# Plot Low ratio against total number of loci per trait
+ggplot(PolymorphismCountTable, aes(x=Total, y=LowRatio))+
+  geom_point(size=1, stroke=0)+
+  labs(title="Low ratio vs Total loci per trait", x="Total loci per trait", y=expression(frac("# Loci in low polymorphic regions", "# Loci in medium polymorphic regions")))+
+  CS.THEME+
+  scale_x_continuous(trans="log2")+
+  geom_hline(yintercept=LowRatioThreshold, color="red", linetype="dashed")
+
+# Plot distribution of High ratio - cumulative distribution
+ggplot(PolymorphismCountTable, aes(x=HighRatio))+
+  stat_ecdf(geom="step", color="blue")+
+  labs(title="High ratio", x=expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions")), y="Cumulative frequency")+
+  CS.THEME+
+  # make intervals 0.1
+  scale_x_continuous(breaks=seq(0, max(PolymorphismCountTable$HighRatio, na.rm = TRUE), by=0.25))+
+  # make x-axis text smaller and rotate
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=HighRatioThreshold, color="black", linetype="dashed")
+
+# Plot distribution of Low ratio - cumulative distribution
+ggplot(PolymorphismCountTable, aes(x=LowRatio))+
+  stat_ecdf(geom="step", color="blue")+
+  labs(title="Low ratio", x=expression(frac("# Loci in low polymorphic regions", "# Loci in medium polymorphic regions")), y="Cumulative frequency")+
+  CS.THEME+
+  # make intervals 0.1
+  scale_x_continuous(breaks=seq(0, max(PolymorphismCountTable$LowRatio, na.rm = TRUE), by=0.25))+
+  # make x-axis text smaller and rotate
+  theme(axis.text.x = element_text(size=6, angle=45, hjust=1))+
+  geom_vline(xintercept=LowRatioThreshold, color="black", linetype="dashed")
+```
+
+```{r Plot High vs Low ratio, include=TRUE}
+# Plot High vs Low ratio
+ggplot(PolymorphismCountTable, aes(x=LowRatio, y=HighRatio)) +
+  geom_point(size=1, stroke=0) +
+  labs(
+    title = "High vs Low ratio",
+    x = expression(frac("# Loci in low polymorphic regions", "# Loci in medium polymorphic regions")),
+    y = expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions"))
+  ) +
+  CS.THEME +
+  geom_hline(yintercept = HighRatioThreshold, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = LowRatioThreshold, color = "red", linetype = "dashed")
+
+subset(PolymorphismCountTable, HighRatio>=HighRatioThreshold)
+```
+```{r fit distribution to Random HighRatio data, include=TRUE}
+# library(MASS)
+# # gammma distribution to Random HighRatio data
+# 
+# ## Confirm numerical requirements of beta distribution (Should all return 0)
+# sum(!is.finite(PolymorphismCountTable_Random$HighRatio))
+# sum(is.na(PolymorphismCountTable_Random$HighRatio))
+# sum(PolymorphismCountTable_Random$HighRatio<=0)
+# sum(PolymorphismCountTable_Random$HighRatio>=1)
+# 
+# ## Calculate mean and variance to calculate starting parameters
+# BetaMean<-mean(PolymorphismCountTable_Random$HighRatio)
+# BetaVar<-var(PolymorphismCountTable_Random$HighRatio)
+# 
+# ## Calculate starting parameters
+# InitialShape1<-BetaMean*(BetaMean*(1-BetaMean)/BetaVar-1)
+# InitialShape2<-(1-BetaMean)*(BetaMean*(1-BetaMean)/BetaVar-1)
+# 
+# ## Fit beta distribution to Random HighRatio data
+# #BetaModelFit<-fitdistr(PolymorphismCountTable_Random$HighRatio, dbeta, start=list(shape1=InitialShape1, shape2=InitialShape2))
+# 
+# BetaModelFit<-fitdistr(PolymorphismCountTable_Random$HighRatio, dgamma, start=list(shape1=1, rate=0.1))
+# 
+# BetaModelFit <- fitdistr(PolymorphismCountTable_Random$HighRatio, "gamma", start = list(shape = 1, rate = 0.1))
+# 
+# 
+# BetaModelFit
+# 
+# # Create histogram with fitted beta curve
+# ggplot(PolymorphismCountTable_Random, aes(x = HighRatio)) +
+#   geom_histogram(aes(y = ..density..), bins = 30, fill = "gray", color = "black") +
+#   stat_function(fun = dbeta, args = list(shape1 = BetaModelFit$estimate[1], shape2 = BetaModelFit$estimate[2]), 
+#                 color = "blue", linewidth = 1) +
+#   labs(title = "Histogram of Randomized High Ratio with Fitted Beta Distribution", 
+#        x = "High Ratio", y = "Density") +
+#   theme_minimal()
+# 
+# # Generate quantiles
+# observed_quantiles <- sort(PolymorphismCountTable_Random$HighRatio)
+# theoretical_quantiles <- qbeta(ppoints(length(observed_quantiles)), shape1 = BetaModelFit$estimate[1], shape2 = BetaModelFit$estimate[2])
+# 
+# # Create a data frame for plotting
+# qq_data <- data.frame(Theoretical = theoretical_quantiles, Observed = observed_quantiles)
+# 
+# # Plot QQ plot
+# ggplot(qq_data, aes(x = Theoretical, y = Observed)) +
+#   geom_point(color = "black") +
+#   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+#   labs(title = "QQ Plot of High Ratio vs. Fitted Beta Distribution",
+#        x = "Theoretical Quantiles", y = "Observed Quantiles") +
+#   theme_minimal()
+```
+
+```{r estimate High ratio significance, include=TRUE}
+# Calculate p-values for High ratio
+#PolymorphismCountTable$HighRatio_p.value<-1-pbeta(PolymorphismCountTable$HighRatio, BetaModelFit$estimate[1], BetaModelFit$estimate[2])
+## Use empirical p-value
+PolymorphismCountTable$HighRatio_p.value<-1-ecdf(PolymorphismCountTable_Random$HighRatio)(PolymorphismCountTable$HighRatio)
+
+# Plot distribution of p-values
+ggplot(PolymorphismCountTable, aes(x=HighRatio_p.value))+
+  geom_histogram(fill="blue", color="blue", bins=100)+
+  labs(title="Distribution of p-values for High ratio", x="p-value", y="Frequency")+
+  CS.THEME
+
+# MTC correction
+#library(qvalue)
+#MTC_HighRatio<-qvalue(PolymorphismCountTable$HighRatio_p.value)
+## Plot q-value histogram
+#plot(MTC_HighRatio)
+
+## Add q-values to PolymorphismCountTable
+#PolymorphismCountTable$HighRatio_q.value<-MTC_HighRatio$qvalues
+
+## BH FDR correction
+PolymorphismCountTable$HighRatio_FDR<-p.adjust(PolymorphismCountTable$HighRatio_p.value, method="BH")
+
+# Plot High ratio FDR vs q-values
+# ggplot(PolymorphismCountTable, aes(x=HighRatio_FDR, y=HighRatio_q.value)) +
+#   geom_point(size=1, stroke=0) +
+#   labs(
+#     title = "High ratio FDR vs q-values (jittered)",
+#     x = "FDR",
+#     y = "q-value"
+#   ) +
+#   CS.THEME +
+#   geom_hline(yintercept = 0.05, color = "red", linetype = "dashed")+
+#   geom_vline(xintercept = 0.05, color = "red", linetype = "dashed")
+```
+
+```{r plot High ratio against fdr values, include=TRUE}
+# Plot High ratio against FDR
+ggplot(PolymorphismCountTable, aes(x=HighRatio, y=HighRatio_FDR)) +
+  geom_jitter(size=1, stroke=0, width=0.1, height=0.01, alpha=0.75) +
+  labs(
+    title = "High ratio vs FDR values (jittered)",
+    x = expression(frac("# Loci in high polymorphic regions", "# Loci in medium polymorphic regions")),
+    y = "FDR value"
+  ) +
+  CS.THEME +
+  geom_hline(yintercept = 0.05, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = HighRatioThreshold, color = "red", linetype = "dashed")
+```
+
+```{r extract traits enriched for polymorphic regions, include=TRUE}
+# How many traits total?
+nrow(PolymorphismCountTable)
+
+# How many traits have High ratio above threshold and with FDR<0.05?
+nrow(subset(PolymorphismCountTable, HighRatio>HighRatioThreshold & HighRatio_FDR<0.05))
+
+# What traits have High ratio above threshold and with FDR<0.05?
+subset(PolymorphismCountTable, HighRatio>HighRatioThreshold & HighRatio_FDR<0.05)
+
+subset(PolymorphismCountTable, Trait=="Neurodegenerative disorders")
+
+# Save PolymorphismCountTable
+write.table(PolymorphismCountTable, "PolymorphismCountTable.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+```
