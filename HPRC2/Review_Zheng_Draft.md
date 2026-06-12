@@ -1,43 +1,36 @@
 ---
-title: ""
-authors: ""
-source: ""
-date_received: ""
-deadline: ""
-reviewer: ""
-decision: Pending
-priority: Medium
+title: Review v1 panepigenome manuscript
+authors: Zheng Dong
+date_received: 2026-06-07
+deadline: 2026-06-11
+reviewer: Juan Macias
+priority: High
 ---
 
 # Overview
 
-
+Here I will compile my notes for Zhengs panepigenome manuscript
 
 ## Summary
 
 
 
-## Review Checklist
-
-- [ ] Clarity and writing quality
-- [ ] Methodology is sound and well-described
-- [ ] Figures and tables are clear and properly labeled
-- [ ] References are complete and appropriate
-- [ ] Statistical analysis is appropriate
-- [ ] Conclusions are supported by the data
-
-## Strengths
+## Sections Checklist
 
 
+- [ ] Intro
 
-## Weaknesses / Concerns
+- [ ] Results
 
-
-
+- [ ] Discussion
 ## Notes
 
 
 
 ## Action Items
 
-- [ ] 
+[ ] TODO Review Zheng manuscript
+
+<!-- workspace-atlas
+status: active
+-->

@@ -1,4 +1,5 @@
 ---
+title: HPRC2 call Jun 08 2026
 date: 2026-06-08
 meeting_type: Conference Call
 ---
@@ -29,7 +30,3 @@ Regular HPRC2 pangenome wg call
 
 ## Notes
 To be entirely honest I am not entirely certain how to proceed. I definitely need to make edits but I am not 100% sure what edits to make at this time. I guess I should just discuss with others and come up with a revision plan?
-
-<!-- workspace-atlas
-status: active
--->
