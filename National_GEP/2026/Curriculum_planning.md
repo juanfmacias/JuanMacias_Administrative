@@ -95,4 +95,8 @@ Most of what faculty need is already in hand or falls out of the above:
 
 ## Action items
 
-[ ] TODO make slides, make module docs, make handouts?
+[x] TODO make slides, make module docs, make handouts?
+
+<!-- workspace-atlas
+status: done
+-->
