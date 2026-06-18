@@ -18,13 +18,13 @@ Here I will compile my notes for Zhengs panepigenome manuscript
 ## Sections Checklist
 
 
-- [ ] Intro
+- [x] Intro
 
 - [ ] Results
 
-- [ ] Discussion
+- [x] Discussion
 ## Notes
-
+I have commmented on the intro and discussion and shared them with Zheng.
 
 
 ## Action Items
